@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:isar/isar.dart';
 
 import '../../core/authorization/role_permission.dart';
+import '../../core/utils/audit_logger.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/category_model.dart';
 import '../../data/models/item_model.dart';
@@ -393,6 +394,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
               final isar = context.read<Isar>();
               await isar.writeTxn(() async {
                 await isar.itemModels.delete(item.id);
+                await AuditLogger.record(
+                  isar,
+                  widget.currentUser,
+                  'DELETE_ITEM',
+                  "Hapus barang '${item.name}' (${item.partNumber})",
+                );
               });
               if (ctx.mounted) {
                 Navigator.pop(ctx);

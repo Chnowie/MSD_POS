@@ -364,7 +364,8 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     final total = _cartTotal;
     final paidController = TextEditingController(text: total.toInt().toString());
     String paymentMethod = 'TUNAI';
-    DateTime? dueDate = DateTime.now().add(const Duration(days: 30));
+    // Jatuh tempo TIDAK diisi otomatis — wajib dipilih manual saat HUTANG.
+    DateTime? dueDate;
 
     showDialog(
       context: context,
@@ -487,17 +488,25 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            "Jatuh Tempo: ${Formatters.formatDate(dueDate!)}",
-                            style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+                          Expanded(
+                            child: Text(
+                              dueDate != null
+                                  ? "Jatuh Tempo: ${Formatters.formatDate(dueDate!)}"
+                                  : "Jatuh Tempo: belum dipilih",
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: dueDate != null ? Colors.grey.shade800 : Colors.red,
+                                fontWeight: dueDate != null ? FontWeight.normal : FontWeight.bold,
+                              ),
+                            ),
                           ),
                           TextButton.icon(
                             icon: const Icon(Icons.calendar_month, size: 18),
-                            label: const Text("Ubah Tanggal"),
+                            label: Text(dueDate != null ? "Ubah Tanggal" : "Pilih Tanggal"),
                             onPressed: () async {
                               final picked = await showDatePicker(
                                 context: context,
-                                initialDate: dueDate!,
+                                initialDate: dueDate ?? DateTime.now(),
                                 firstDate: DateTime.now(),
                                 lastDate: DateTime.now().add(const Duration(days: 365)),
                               );
@@ -518,13 +527,15 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                   child: const Text("Batal"),
                 ),
                 ElevatedButton(
-                  onPressed: () => _processPurchaseCheckout(
-                    dialogCtx: dialogCtx,
-                    total: total,
-                    paid: paid,
-                    paymentStatus: isHutang ? 'HUTANG' : 'LUNAS',
-                    dueDate: isHutang ? dueDate : null,
-                  ),
+                  onPressed: (isHutang && dueDate == null)
+                      ? null
+                      : () => _processPurchaseCheckout(
+                          dialogCtx: dialogCtx,
+                          total: total,
+                          paid: paid,
+                          paymentStatus: isHutang ? 'HUTANG' : 'LUNAS',
+                          dueDate: isHutang ? dueDate : null,
+                        ),
                   child: const Text("SIMPAN PEMBELIAN & RESTOCK"),
                 ),
               ],

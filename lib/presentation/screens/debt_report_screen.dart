@@ -7,6 +7,7 @@ import 'package:isar/isar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/authorization/role_permission.dart';
+import '../../core/utils/audit_logger.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/customer_model.dart';
 import '../../data/models/purchase_transaction_model.dart';
@@ -564,6 +565,7 @@ class _DebtReportScreenState extends State<DebtReportScreen>
                     final newRemaining =
                         (sale.grandTotal - paidAmount).clamp(0, sale.grandTotal).toDouble();
                     final oldRemaining = sale.remainingDebt;
+                    final oldStatus = sale.paymentStatus;
 
                     await isar.writeTxn(() async {
                       sale.paymentStatus = status;
@@ -583,6 +585,14 @@ class _DebtReportScreenState extends State<DebtReportScreen>
                           await isar.customerModels.put(customer);
                         }
                       }
+
+                      await AuditLogger.record(
+                        isar,
+                        widget.currentUser,
+                        'CHANGE_SALE_STATUS',
+                        "Ubah status faktur ${sale.invoiceNumber} dari $oldStatus ke $status "
+                        "(dibayar: ${Formatters.formatRupiah(sale.paidAmount)})",
+                      );
                     });
 
                     if (dialogCtx.mounted) Navigator.pop(dialogCtx);
@@ -692,6 +702,7 @@ class _DebtReportScreenState extends State<DebtReportScreen>
                     final newRemaining =
                         (po.grandTotal - paidAmount).clamp(0, po.grandTotal).toDouble();
                     final oldRemaining = po.remainingPayable;
+                    final oldStatus = po.paymentStatus;
 
                     await isar.writeTxn(() async {
                       po.paymentStatus = status;
@@ -699,6 +710,14 @@ class _DebtReportScreenState extends State<DebtReportScreen>
                       po.remainingPayable = status == 'LUNAS' ? 0 : newRemaining;
                       po.isSynced = false;
                       await isar.purchaseTransactionModels.put(po);
+
+                      await AuditLogger.record(
+                        isar,
+                        widget.currentUser,
+                        'CHANGE_PURCHASE_STATUS',
+                        "Ubah status PO ${po.poNumber} dari $oldStatus ke $status "
+                        "(dibayar: ${Formatters.formatRupiah(po.paidAmount)})",
+                      );
 
                       // Sinkronkan agregat hutang ke supplier (dipakai Dashboard)
                       // supaya tidak selisih dengan angka di transaksi.
@@ -775,6 +794,13 @@ class _DebtReportScreenState extends State<DebtReportScreen>
           await isar.supplierModels.put(sp);
         }
       }
+
+      await AuditLogger.record(
+        isar,
+        widget.currentUser,
+        'RECONCILE_DEBT_TOTALS',
+        "Sinkronkan ulang total piutang pelanggan & hutang supplier.",
+      );
     });
 
     if (mounted) {
@@ -852,6 +878,14 @@ class _DebtReportScreenState extends State<DebtReportScreen>
                   await isar.saleItemModels.delete(si.id);
                 }
                 await isar.saleTransactionModels.delete(sale.id);
+
+                await AuditLogger.record(
+                  isar,
+                  widget.currentUser,
+                  'DELETE_SALE',
+                  "Hapus faktur ${sale.invoiceNumber} ($customerName), total "
+                  "${Formatters.formatRupiah(sale.grandTotal)}",
+                );
               });
 
               // Best-effort hapus juga di Supabase agar tidak "hidup lagi"
@@ -948,6 +982,14 @@ class _DebtReportScreenState extends State<DebtReportScreen>
                   await isar.purchaseItemModels.delete(pi.id);
                 }
                 await isar.purchaseTransactionModels.delete(po.id);
+
+                await AuditLogger.record(
+                  isar,
+                  widget.currentUser,
+                  'DELETE_PURCHASE',
+                  "Hapus PO ${po.poNumber} ($supplierName), total "
+                  "${Formatters.formatRupiah(po.grandTotal)}",
+                );
               });
 
               try {

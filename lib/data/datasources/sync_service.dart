@@ -5,8 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:isar/isar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/audit_log_model.dart';
 import '../models/customer_model.dart';
 import '../models/item_model.dart';
+import '../models/monthly_profit_close_model.dart';
+import '../models/owner_model.dart';
+import '../models/owner_withdrawal_model.dart';
 import '../models/purchase_item_model.dart';
 import '../models/purchase_transaction_model.dart';
 import '../models/sale_item_model.dart';
@@ -192,6 +196,24 @@ class SyncService {
       // 5. PUSH STOCK MOVEMENT LOGS
       final logResult = await _syncStockLogs(syncErrors);
       pushed += logResult['pushed'] ?? 0;
+
+      // 6. PUSH & PULL BAGI HASIL OWNER (owners, tutup bulan, penarikan)
+      final ownerResult = await _syncOwners(syncErrors);
+      pushed += ownerResult['pushed'] ?? 0;
+      pulled += ownerResult['pulled'] ?? 0;
+
+      final profitCloseResult = await _syncMonthlyProfitCloses(syncErrors);
+      pushed += profitCloseResult['pushed'] ?? 0;
+      pulled += profitCloseResult['pulled'] ?? 0;
+
+      final withdrawalResult = await _syncOwnerWithdrawals(syncErrors);
+      pushed += withdrawalResult['pushed'] ?? 0;
+      pulled += withdrawalResult['pulled'] ?? 0;
+
+      // 7. PUSH & PULL AUDIT LOG (append-only, tidak ada agregat yang perlu diterapkan)
+      final auditResult = await _syncAuditLogs(syncErrors);
+      pushed += auditResult['pushed'] ?? 0;
+      pulled += auditResult['pulled'] ?? 0;
 
       lastSyncTime.value = DateTime.now();
       await updatePendingCount();
@@ -806,5 +828,284 @@ class SyncService {
     }
 
     return {'pushed': pushed};
+  }
+
+  // ---------------------------------------------------------------------------
+  // SYNC OWNERS (Bagi Hasil Owner)
+  // ---------------------------------------------------------------------------
+  // Catatan penting: yang di-push/pull cuma IDENTITAS owner (nama & porsi %).
+  // totalEntitled & totalWithdrawn SENGAJA tidak disinkronkan sebagai angka
+  // mentah (rawan tabrakan kalau 2 device edit bersamaan) — melainkan selalu
+  // dihitung ulang secara lokal dengan "menerapkan" tiap event tutup-bulan &
+  // penarikan yang di-pull (lihat _syncMonthlyProfitCloses & _syncOwnerWithdrawals),
+  // persis seperti saat event itu dibuat langsung di device ini.
+  Future<Map<String, int>> _syncOwners(List<String> errors) async {
+    int pushed = 0;
+    int pulled = 0;
+
+    try {
+      final localOwners = await isar.ownerModels.where().findAll();
+      for (final owner in localOwners) {
+        try {
+          await supabaseClient.from('owners').upsert({
+            'name': owner.name,
+            'share_percentage': owner.sharePercentage,
+          }, onConflict: 'name');
+          pushed++;
+        } catch (e) {
+          errors.add("Owner ${owner.name}: $e");
+          debugPrint("Push owner error: $e");
+        }
+      }
+
+      try {
+        final List<dynamic> remoteOwners = await supabaseClient.from('owners').select();
+        for (final row in remoteOwners) {
+          final name = row['name'] as String? ?? '';
+          if (name.isEmpty) continue;
+
+          final existing =
+              await isar.ownerModels.filter().nameEqualTo(name, caseSensitive: false).findFirst();
+          if (existing == null) {
+            final newOwner = OwnerModel(
+              name: name,
+              sharePercentage: (row['share_percentage'] as num?)?.toDouble() ?? 0.0,
+            );
+            await isar.writeTxn(() async {
+              await isar.ownerModels.put(newOwner);
+            });
+            pulled++;
+          }
+        }
+      } catch (e) {
+        debugPrint("Pull owner error: $e");
+      }
+    } catch (e) {
+      errors.add("Sync Owners: $e");
+      debugPrint("Error syncing owners: $e");
+    }
+
+    return {'pushed': pushed, 'pulled': pulled};
+  }
+
+  // ---------------------------------------------------------------------------
+  // SYNC MONTHLY PROFIT CLOSES (Tutup Bulan)
+  // ---------------------------------------------------------------------------
+  Future<Map<String, int>> _syncMonthlyProfitCloses(List<String> errors) async {
+    int pushed = 0;
+    int pulled = 0;
+
+    try {
+      final unsynced =
+          await isar.monthlyProfitCloseModels.filter().isSyncedEqualTo(false).findAll();
+      for (final c in unsynced) {
+        try {
+          await supabaseClient.from('monthly_profit_closes').upsert({
+            'month_key': c.monthKey,
+            'year': c.year,
+            'month': c.month,
+            'net_profit': c.netProfit,
+            'closed_at': c.closedAt.toIso8601String(),
+          }, onConflict: 'month_key');
+
+          await isar.writeTxn(() async {
+            c.isSynced = true;
+            await isar.monthlyProfitCloseModels.put(c);
+          });
+          pushed++;
+        } catch (e) {
+          errors.add("Tutup Bulan ${c.monthKey}: $e");
+          debugPrint("Push monthly profit close error: $e");
+        }
+      }
+
+      // Pull tutup-bulan baru dari device lain, lalu TERAPKAN efeknya
+      // (tambah totalEntitled tiap owner) persis seperti saat ditutup lokal.
+      try {
+        final List<dynamic> remoteCloses =
+            await supabaseClient.from('monthly_profit_closes').select();
+        for (final row in remoteCloses) {
+          final monthKey = row['month_key'] as String? ?? '';
+          if (monthKey.isEmpty) continue;
+
+          final existing = await isar.monthlyProfitCloseModels
+              .filter()
+              .monthKeyEqualTo(monthKey)
+              .findFirst();
+          if (existing != null) continue;
+
+          final netProfit = (row['net_profit'] as num?)?.toDouble() ?? 0.0;
+          final newClose = MonthlyProfitCloseModel(
+            monthKey: monthKey,
+            year: (row['year'] as num?)?.toInt() ?? 0,
+            month: (row['month'] as num?)?.toInt() ?? 0,
+            netProfit: netProfit,
+            closedAt: DateTime.tryParse(row['closed_at'] as String? ?? '') ?? DateTime.now(),
+            isSynced: true,
+          );
+
+          await isar.writeTxn(() async {
+            await isar.monthlyProfitCloseModels.put(newClose);
+            final owners = await isar.ownerModels.where().findAll();
+            for (final owner in owners) {
+              owner.totalEntitled += netProfit * owner.sharePercentage;
+              await isar.ownerModels.put(owner);
+            }
+          });
+          pulled++;
+        }
+      } catch (e) {
+        debugPrint("Pull monthly profit close error: $e");
+      }
+    } catch (e) {
+      errors.add("Sync Monthly Profit Closes: $e");
+      debugPrint("Error syncing monthly profit closes: $e");
+    }
+
+    return {'pushed': pushed, 'pulled': pulled};
+  }
+
+  // ---------------------------------------------------------------------------
+  // SYNC OWNER WITHDRAWALS (Penarikan Owner)
+  // ---------------------------------------------------------------------------
+  Future<Map<String, int>> _syncOwnerWithdrawals(List<String> errors) async {
+    int pushed = 0;
+    int pulled = 0;
+
+    try {
+      final unsynced = await isar.ownerWithdrawalModels.filter().isSyncedEqualTo(false).findAll();
+      for (final w in unsynced) {
+        try {
+          final owner = await isar.ownerModels.get(w.ownerId);
+          await supabaseClient.from('owner_withdrawals').upsert({
+            'uuid': w.uuid,
+            'owner_name': owner?.name ?? 'Unknown',
+            'amount': w.amount,
+            'date': w.date.toIso8601String(),
+            'note': w.note,
+          }, onConflict: 'uuid');
+
+          await isar.writeTxn(() async {
+            w.isSynced = true;
+            await isar.ownerWithdrawalModels.put(w);
+          });
+          pushed++;
+        } catch (e) {
+          errors.add("Penarikan ${w.uuid}: $e");
+          debugPrint("Push owner withdrawal error: $e");
+        }
+      }
+
+      // Pull penarikan baru dari device lain, lalu TERAPKAN efeknya
+      // (tambah totalWithdrawn owner terkait) persis seperti saat ditarik lokal.
+      try {
+        final List<dynamic> remoteWithdrawals =
+            await supabaseClient.from('owner_withdrawals').select();
+        for (final row in remoteWithdrawals) {
+          final uuid = row['uuid'] as String? ?? '';
+          if (uuid.isEmpty) continue;
+
+          final existing =
+              await isar.ownerWithdrawalModels.filter().uuidEqualTo(uuid).findFirst();
+          if (existing != null) continue;
+
+          final ownerName = row['owner_name'] as String? ?? '';
+          final owner = await isar.ownerModels
+              .filter()
+              .nameEqualTo(ownerName, caseSensitive: false)
+              .findFirst();
+          if (owner == null) continue; // Owner belum sinkron, coba lagi sync berikutnya
+
+          final amount = (row['amount'] as num?)?.toDouble() ?? 0.0;
+          final newWithdrawal = OwnerWithdrawalModel(
+            uuid: uuid,
+            ownerId: owner.id,
+            amount: amount,
+            date: DateTime.tryParse(row['date'] as String? ?? '') ?? DateTime.now(),
+            note: row['note'] as String? ?? '',
+            isSynced: true,
+          );
+
+          await isar.writeTxn(() async {
+            await isar.ownerWithdrawalModels.put(newWithdrawal);
+            owner.totalWithdrawn += amount;
+            await isar.ownerModels.put(owner);
+          });
+          pulled++;
+        }
+      } catch (e) {
+        debugPrint("Pull owner withdrawal error: $e");
+      }
+    } catch (e) {
+      errors.add("Sync Owner Withdrawals: $e");
+      debugPrint("Error syncing owner withdrawals: $e");
+    }
+
+    return {'pushed': pushed, 'pulled': pulled};
+  }
+
+  // ---------------------------------------------------------------------------
+  // SYNC AUDIT LOG (append-only, tidak ada agregat yang perlu diterapkan)
+  // ---------------------------------------------------------------------------
+  Future<Map<String, int>> _syncAuditLogs(List<String> errors) async {
+    int pushed = 0;
+    int pulled = 0;
+
+    try {
+      final unsynced = await isar.auditLogModels.filter().isSyncedEqualTo(false).findAll();
+      for (final log in unsynced) {
+        try {
+          await supabaseClient.from('audit_logs').upsert({
+            'uuid': log.uuid,
+            'username': log.username,
+            'role': log.role,
+            'action': log.action,
+            'description': log.description,
+            'timestamp': log.timestamp.toIso8601String(),
+          }, onConflict: 'uuid');
+
+          await isar.writeTxn(() async {
+            log.isSynced = true;
+            await isar.auditLogModels.put(log);
+          });
+          pushed++;
+        } catch (e) {
+          errors.add("Audit Log ${log.uuid}: $e");
+          debugPrint("Push audit log error: $e");
+        }
+      }
+
+      try {
+        final List<dynamic> remoteLogs = await supabaseClient.from('audit_logs').select();
+        for (final row in remoteLogs) {
+          final uuid = row['uuid'] as String? ?? '';
+          if (uuid.isEmpty) continue;
+
+          final existing = await isar.auditLogModels.filter().uuidEqualTo(uuid).findFirst();
+          if (existing != null) continue;
+
+          final newLog = AuditLogModel(
+            uuid: uuid,
+            username: row['username'] as String? ?? '',
+            role: row['role'] as String? ?? '',
+            action: row['action'] as String? ?? '',
+            description: row['description'] as String? ?? '',
+            timestamp: DateTime.tryParse(row['timestamp'] as String? ?? '') ?? DateTime.now(),
+            isSynced: true,
+          );
+          await isar.writeTxn(() async {
+            await isar.auditLogModels.put(newLog);
+          });
+          pulled++;
+        }
+      } catch (e) {
+        debugPrint("Pull audit log error: $e");
+      }
+    } catch (e) {
+      errors.add("Sync Audit Logs: $e");
+      debugPrint("Error syncing audit logs: $e");
+    }
+
+    return {'pushed': pushed, 'pulled': pulled};
   }
 }

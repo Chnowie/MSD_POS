@@ -6,6 +6,7 @@ import 'package:isar/isar.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/authorization/role_permission.dart';
+import '../../core/utils/audit_logger.dart';
 import '../../core/utils/formatters.dart';
 import '../../data/models/customer_model.dart';
 import '../../data/models/purchase_transaction_model.dart';
@@ -339,6 +340,12 @@ class _PartnersScreenState extends State<PartnersScreen>
             onPressed: () async {
               await isar.writeTxn(() async {
                 await isar.customerModels.delete(customer.id);
+                await AuditLogger.record(
+                  isar,
+                  widget.currentUser,
+                  'DELETE_CUSTOMER',
+                  "Hapus pelanggan '${customer.name}' (${customer.phone})",
+                );
               });
 
               // Best-effort hapus juga di Supabase agar tidak "hidup lagi"
@@ -393,6 +400,12 @@ class _PartnersScreenState extends State<PartnersScreen>
             onPressed: () async {
               await isar.writeTxn(() async {
                 await isar.supplierModels.delete(supplier.id);
+                await AuditLogger.record(
+                  isar,
+                  widget.currentUser,
+                  'DELETE_SUPPLIER',
+                  "Hapus supplier '${supplier.name}' (${supplier.phone})",
+                );
               });
 
               try {

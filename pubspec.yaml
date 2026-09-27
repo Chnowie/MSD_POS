@@ -55,6 +55,10 @@ dependencies:
   pdf: ^3.13.0
   printing: ^5.15.0
 
+  # Backup & Restore Database
+  share_plus: ^10.1.4
+  file_picker: ^8.1.7
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

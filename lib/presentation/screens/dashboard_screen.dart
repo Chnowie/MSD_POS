@@ -14,6 +14,7 @@ import '../../data/models/sale_transaction_model.dart';
 import '../../data/models/user_model.dart';
 import '../../domain/services/dashboard_calculator.dart';
 import '../../utils/pdf_generator.dart';
+import 'owner_profit_sharing_screen.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 
@@ -315,52 +316,80 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          const Row(
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.stars_rounded,
-                                  color: Colors.amberAccent, size: 20),
-                              SizedBox(width: 6),
+                              const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.stars_rounded,
+                                      color: Colors.amberAccent, size: 20),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    "ESTIMASI LABA BERSIH (KHUSUS OWNER)",
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
                               Text(
-                                "ESTIMASI LABA BERSIH (KHUSUS OWNER)",
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
+                                Formatters.formatRupiah(
+                                  _summary?.netProfitMonth ?? 0,
+                                ),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
                                   fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.5,
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            Formatters.formatRupiah(
-                              _summary?.netProfitMonth ?? 0,
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
                             ),
-                            style: const TextStyle(
+                            child: const Icon(
+                              Icons.trending_up_rounded,
                               color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
+                              size: 32,
                             ),
                           ),
                         ],
                       ),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
+                      const SizedBox(height: 16),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white54),
                         ),
-                        child: const Icon(
-                          Icons.trending_up_rounded,
-                          color: Colors.white,
-                          size: 32,
-                        ),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => OwnerProfitSharingScreen(
+                                currentUser: widget.currentUser,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.pie_chart_outline_rounded, size: 18),
+                        label: const Text("Kelola Bagi Hasil Owner"),
                       ),
                     ],
                   ),

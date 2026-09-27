@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/authorization/role_permission.dart';
 import '../../data/datasources/sync_service.dart';
 import '../../data/models/user_model.dart';
 import '../bloc/auth/auth_bloc.dart';
 import '../bloc/auth/auth_event.dart';
+import 'audit_log_screen.dart';
+import 'backup_restore_screen.dart';
 import 'category_management_screen.dart';
 import 'dashboard_screen.dart';
 import 'debt_report_screen.dart';
@@ -233,6 +236,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               );
             } else if (value == 'db_viewer') {
               OfflineDbViewerDialog.show(context);
+            } else if (value == 'audit_log') {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => AuditLogScreen(currentUser: widget.currentUser),
+                ),
+              );
+            } else if (value == 'backup_restore') {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => BackupRestoreScreen(currentUser: widget.currentUser),
+                ),
+              );
             }
           },
           itemBuilder: (context) => [
@@ -263,6 +278,28 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 ],
               ),
             ),
+            if (RolePermission.canManagePurchasesAndDebts(widget.currentUser.userRoleEnum))
+              const PopupMenuItem(
+                value: 'audit_log',
+                child: Row(
+                  children: [
+                    Icon(Icons.history_rounded, color: Colors.indigo, size: 20),
+                    SizedBox(width: 8),
+                    Text("Log Aktivitas", style: TextStyle(color: Colors.indigo)),
+                  ],
+                ),
+              ),
+            if (RolePermission.canViewNetProfitDashboard(widget.currentUser.userRoleEnum))
+              const PopupMenuItem(
+                value: 'backup_restore',
+                child: Row(
+                  children: [
+                    Icon(Icons.backup_outlined, color: Colors.indigo, size: 20),
+                    SizedBox(width: 8),
+                    Text("Backup & Restore", style: TextStyle(color: Colors.indigo)),
+                  ],
+                ),
+              ),
             const PopupMenuItem(
               value: 'logout',
               child: Row(

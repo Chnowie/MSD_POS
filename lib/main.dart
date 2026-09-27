@@ -11,9 +11,13 @@ import 'data/datasources/auth_service.dart';
 import 'data/datasources/data_seeder.dart';
 import 'data/datasources/sync_service.dart';
 import 'data/models/app_settings_model.dart';
+import 'data/models/audit_log_model.dart';
 import 'data/models/category_model.dart';
 import 'data/models/customer_model.dart';
 import 'data/models/item_model.dart';
+import 'data/models/monthly_profit_close_model.dart';
+import 'data/models/owner_model.dart';
+import 'data/models/owner_withdrawal_model.dart';
 import 'data/models/purchase_item_model.dart';
 import 'data/models/purchase_transaction_model.dart';
 import 'data/models/sale_item_model.dart';
@@ -73,6 +77,10 @@ void main() async {
       PurchaseItemModelSchema,
       StockMovementLogModelSchema,
       AppSettingsModelSchema,
+      OwnerModelSchema,
+      MonthlyProfitCloseModelSchema,
+      OwnerWithdrawalModelSchema,
+      AuditLogModelSchema,
     ],
     directory: dir.path,
     name: 'sparepart_pos_db',
@@ -102,6 +110,7 @@ void main() async {
   }
   await DataSeeder.seedInitialData(isar);
   await DataSeeder.seedDefaultCategories(isar);
+  await DataSeeder.seedDefaultOwners(isar);
 
   // Muat preferensi tema (Terang/Gelap/Ikuti Sistem) yang tersimpan
   final initialThemeMode = await ThemeController.loadInitial(isar);

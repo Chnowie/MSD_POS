@@ -5,6 +5,9 @@ import 'package:isar/isar.dart';
 import '../models/category_model.dart';
 import '../models/customer_model.dart';
 import '../models/item_model.dart';
+import '../models/monthly_profit_close_model.dart';
+import '../models/owner_model.dart';
+import '../models/owner_withdrawal_model.dart';
 import '../models/purchase_item_model.dart';
 import '../models/purchase_transaction_model.dart';
 import '../models/sale_item_model.dart';
@@ -89,6 +92,21 @@ class DataSeeder {
     });
   }
 
+  /// Seed 2 owner default (60% & 40%) hanya jika BELUM ada satupun owner.
+  /// Nama & porsi cuma titik awal — bisa diedit sendiri lewat halaman
+  /// Bagi Hasil Owner.
+  static Future<void> seedDefaultOwners(Isar isar) async {
+    final ownerCount = await isar.ownerModels.count();
+    if (ownerCount > 0) return; // Sudah ada owner, tidak perlu re-seed
+
+    await isar.writeTxn(() async {
+      await isar.ownerModels.putAll([
+        OwnerModel(name: 'Owner 1', sharePercentage: 0.6),
+        OwnerModel(name: 'Owner 2', sharePercentage: 0.4),
+      ]);
+    });
+  }
+
   /// Hapus SEMUA data lokal dan reset ke fresh state.
   /// Digunakan untuk keperluan testing / reset ulang aplikasi.
   static Future<void> clearAllData(Isar isar) async {
@@ -103,6 +121,9 @@ class DataSeeder {
       await isar.purchaseTransactionModels.clear();
       await isar.purchaseItemModels.clear();
       await isar.stockMovementLogModels.clear();
+      await isar.ownerModels.clear();
+      await isar.monthlyProfitCloseModels.clear();
+      await isar.ownerWithdrawalModels.clear();
     });
   }
 }

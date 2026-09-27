@@ -483,7 +483,7 @@ class _PosScreenState extends State<PosScreen> {
                                 setDialogState(() {
                                   paymentMethod = 'HUTANG';
                                   paidController.text = '0';
-                                  dueDate = DateTime.now().add(const Duration(days: 14));
+                                  // Jatuh tempo TIDAK diisi otomatis — wajib dipilih manual.
                                 });
                               }
                             },
@@ -554,11 +554,39 @@ class _PosScreenState extends State<PosScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      if (dueDate != null)
-                        Text(
-                          "Jatuh Tempo: ${Formatters.formatDate(dueDate!)}",
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                        ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              dueDate != null
+                                  ? "Jatuh Tempo: ${Formatters.formatDate(dueDate!)}"
+                                  : "Jatuh Tempo: belum dipilih",
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: dueDate != null ? Colors.grey.shade800 : Colors.red,
+                                fontWeight: dueDate != null ? FontWeight.normal : FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          TextButton.icon(
+                            icon: const Icon(Icons.calendar_month, size: 18),
+                            label: Text(dueDate != null ? "Ubah Tanggal" : "Pilih Tanggal"),
+                            onPressed: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: dueDate ?? DateTime.now(),
+                                firstDate: DateTime.now(),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                              );
+                              if (picked != null) {
+                                setDialogState(() => dueDate = picked);
+                              }
+                            },
+                          ),
+                        ],
+                      ),
                     ] else ...[
                       const SizedBox(height: 10),
                       Text(
@@ -579,14 +607,16 @@ class _PosScreenState extends State<PosScreen> {
                   child: const Text("Batal"),
                 ),
                 ElevatedButton(
-                  onPressed: () => _processCheckout(
-                    dialogCtx: dialogCtx,
-                    total: total,
-                    paid: paid,
-                    paymentStatus: isHutang ? 'HUTANG' : 'LUNAS',
-                    dueDate: dueDate,
-                    transactionDate: transactionDate,
-                  ),
+                  onPressed: (isHutang && dueDate == null)
+                      ? null
+                      : () => _processCheckout(
+                          dialogCtx: dialogCtx,
+                          total: total,
+                          paid: paid,
+                          paymentStatus: isHutang ? 'HUTANG' : 'LUNAS',
+                          dueDate: dueDate,
+                          transactionDate: transactionDate,
+                        ),
                   child: const Text("SIMPAN TRANSAKSI"),
                 ),
               ],
